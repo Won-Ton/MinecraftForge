@@ -176,6 +176,7 @@ import net.minecraftforge.fml.ModLoader;
 import net.minecraftforge.fml.common.ObfuscationReflectionHelper;
 import net.minecraftforge.fml.packs.ResourcePackLoader;
 import net.minecraftforge.registries.DataSerializerEntry;
+import net.minecraftforge.registries.ForgeDynamicRegistries;
 import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraftforge.registries.ForgeRegistry;
 import net.minecraftforge.registries.GameData;
@@ -937,7 +938,8 @@ public class ForgeHooks
         registries.createSnapshot();
 
         postDynamicRegistryLoadEvent(registries);
-        postBiomeLoadEvent(registries);
+
+        postBiomeLoadEvents(registries);
 
         return context;
     }
@@ -947,49 +949,23 @@ public class ForgeHooks
         MinecraftForge.EVENT_BUS.post(new DynamicRegistryLoadEvent(dynamicRegistries));
     }
 
-    private static void postBiomeLoadEvent(DynamicRegistries.Impl dynamicRegistries)
+    private static void postBiomeLoadEvents(DynamicRegistries.Impl dynamicRegistries)
     {
         MutableRegistry<Biome> registry = dynamicRegistries.registryOrThrow(Registry.BIOME_REGISTRY);
+        Function<Biome, Lifecycle> lifecycleFunction = ForgeDynamicRegistries.getLifecyleFunction(registry);
 
         // Note: Wrap entrySet since we're modifying the underlying map
         for (Map.Entry<RegistryKey<Biome>, Biome> entry : new ArrayList<>(registry.entrySet()))
         {
             Biome biome = entry.getValue();
+            RegistryKey<Biome> key = entry.getKey();
+            Lifecycle lifecycle = lifecycleFunction.apply(biome);
 
-            // Note: This could be done much nicelyer
-            BiomeLoadingEvent event = new BiomeLoadingEvent(
-                    dynamicRegistries,
-                    biome.getRegistryName(),
-                    new Biome.Climate(
-                            biome.getPrecipitation(),
-                            biome.getBaseTemperature(),
-                            Biome.TemperatureModifier.NONE,
-                            biome.getDownfall()
-                    ),
-                    biome.getBiomeCategory(),
-                    biome.getDepth(),
-                    biome.getScale(),
-                    biome.getSpecialEffects(),
-                    new BiomeGenerationSettingsBuilder(biome.getGenerationSettings()),
-                    new MobSpawnInfoBuilder(biome.getMobSettings())
-            );
-
+            BiomeLoadingEvent event = BiomeLoadingEvent.create(biome, key.location(), dynamicRegistries);
             MinecraftForge.EVENT_BUS.post(event);
+            Biome result = BiomeLoadingEvent.build(event);
 
-            Biome.Builder builder = new Biome.Builder();
-            builder.downfall(event.getClimate().downfall);
-            builder.temperature(event.getClimate().temperature);
-            builder.precipitation(event.getClimate().precipitation);
-            builder.temperatureAdjustment(event.getClimate().temperatureModifier);
-            builder.depth(event.getDepth());
-            builder.scale(event.getScale());
-            builder.biomeCategory(event.getCategory());
-            builder.specialEffects(event.getEffects());
-            builder.mobSpawnSettings(event.getSpawns().build());
-            builder.generationSettings(event.getGeneration().build());
-
-            Biome result = builder.build().setRegistryName(entry.getKey().location());
-            registry.registerOrOverride(OptionalInt.empty(), entry.getKey(), result, Lifecycle.stable());
+            registry.registerOrOverride(OptionalInt.empty(), key, result, lifecycle);
         }
     }
 

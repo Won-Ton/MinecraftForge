@@ -133,7 +133,7 @@ public abstract class ForgeDynamicRegistries
         }
     }
 
-    private static <E> Function<E, Lifecycle> getLifecyleFunction(Registry<E> registry)
+    public static <E> Function<E, Lifecycle> getLifecyleFunction(Registry<E> registry)
     {
         if (registry instanceof SimpleRegistry)
         {
