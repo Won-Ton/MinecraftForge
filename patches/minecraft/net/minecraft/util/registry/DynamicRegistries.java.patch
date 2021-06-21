@@ -1,5 +1,14 @@
 --- a/net/minecraft/util/registry/DynamicRegistries.java
 +++ b/net/minecraft/util/registry/DynamicRegistries.java
+@@ -28,7 +_,7 @@
+ import org.apache.logging.log4j.LogManager;
+ import org.apache.logging.log4j.Logger;
+ 
+-public abstract class DynamicRegistries {
++public abstract class DynamicRegistries extends net.minecraftforge.registries.ForgeDynamicRegistries {
+    private static final Logger field_243598_a = LogManager.getLogger();
+    private static final Map<RegistryKey<? extends Registry<?>>, DynamicRegistries.CodecHolder<?>> field_243599_b = Util.func_199748_a(() -> {
+       Builder<RegistryKey<? extends Registry<?>>, DynamicRegistries.CodecHolder<?>> builder = ImmutableMap.builder();
 @@ -90,6 +_,8 @@
        RegistryKey<? extends Registry<E>> registrykey = p_243607_2_.func_243622_a();
        boolean flag = !registrykey.equals(Registry.field_243549_ar) && !registrykey.equals(Registry.field_239698_ad_);

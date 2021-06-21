@@ -22,6 +22,7 @@ package net.minecraftforge.common;
 import java.lang.reflect.Field;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Deque;
@@ -30,6 +31,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.regex.Matcher;
@@ -48,7 +50,6 @@ import com.mojang.datafixers.util.Pair;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.Dynamic;
 import com.mojang.serialization.Lifecycle;
-import com.mojang.serialization.codecs.RecordCodecBuilder;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -108,6 +109,7 @@ import net.minecraft.potion.PotionUtils;
 import net.minecraft.stats.Stats;
 import net.minecraft.util.math.vector.Vector3d;
 import net.minecraft.util.registry.DynamicRegistries;
+import net.minecraft.util.registry.MutableRegistry;
 import net.minecraft.util.registry.Registry;
 import net.minecraft.util.registry.SimpleRegistry;
 import net.minecraft.util.registry.WorldSettingsImport;
@@ -130,9 +132,6 @@ import net.minecraft.util.math.BlockRayTraceResult;
 import net.minecraft.util.math.EntityRayTraceResult;
 import net.minecraft.util.text.event.ClickEvent;
 import net.minecraft.world.biome.Biome;
-import net.minecraft.world.biome.BiomeAmbience;
-import net.minecraft.world.biome.BiomeGenerationSettings;
-import net.minecraft.world.biome.MobSpawnInfo;
 import net.minecraftforge.common.loot.IGlobalLootModifier;
 import net.minecraftforge.common.loot.LootModifierManager;
 import net.minecraftforge.common.loot.LootTableIdCondition;
@@ -169,6 +168,7 @@ import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.event.world.BiomeLoadingEvent;
 import net.minecraftforge.event.world.BlockEvent;
+import net.minecraftforge.event.world.DynamicRegistryLoadEvent;
 import net.minecraftforge.event.world.NoteBlockEvent;
 import net.minecraftforge.eventbus.api.Event.Result;
 import net.minecraftforge.fluids.FluidAttributes;
@@ -930,19 +930,68 @@ public class ForgeHooks
         return "default";
     }
 
-    @FunctionalInterface
-    public interface BiomeCallbackFunction
+    public static <T> T onWorldGenLoad(T context, DynamicRegistries.Impl registries)
     {
-        Biome apply(final Biome.Climate climate, final Biome.Category category, final Float depth, final Float scale, final BiomeAmbience effects, final BiomeGenerationSettings gen, final MobSpawnInfo spawns);
+        if (!registries.postEvent()) return context;
+
+        // Rollback to previous state if marked
+        registries.rollback();
+
+        postDynamicRegistryLoadEvent(registries);
+        postBiomeLoadEvent(registries);
+
+        return context;
     }
 
-    public static Biome enhanceBiome(@Nullable final ResourceLocation name, final Biome.Climate climate, final Biome.Category category, final Float depth, final Float scale, final BiomeAmbience effects, final BiomeGenerationSettings gen, final MobSpawnInfo spawns, final RecordCodecBuilder.Instance<Biome> codec, final BiomeCallbackFunction callback)
+    private static void postDynamicRegistryLoadEvent(DynamicRegistries.Impl dynamicRegistries)
     {
-        BiomeGenerationSettingsBuilder genBuilder = new BiomeGenerationSettingsBuilder(gen);
-        MobSpawnInfoBuilder spawnBuilder = new MobSpawnInfoBuilder(spawns);
-        BiomeLoadingEvent event = new BiomeLoadingEvent(name, climate, category, depth, scale, effects, genBuilder, spawnBuilder);
-        MinecraftForge.EVENT_BUS.post(event);
-        return callback.apply(event.getClimate(), event.getCategory(), event.getDepth(), event.getScale(), event.getEffects(), event.getGeneration().build(), event.getSpawns().build()).setRegistryName(name);
+        MinecraftForge.EVENT_BUS.post(new DynamicRegistryLoadEvent(dynamicRegistries));
+    }
+
+    private static void postBiomeLoadEvent(DynamicRegistries.Impl dynamicRegistries)
+    {
+        MutableRegistry<Biome> registry = dynamicRegistries.registryOrThrow(Registry.BIOME_REGISTRY);
+
+        // Note: Wrap entrySet since we're modifying the underlying map
+        for (Map.Entry<RegistryKey<Biome>, Biome> entry : new ArrayList<>(registry.entrySet()))
+        {
+            Biome biome = entry.getValue();
+
+            // Note: This could be done much nicelyer
+            BiomeLoadingEvent event = new BiomeLoadingEvent(
+                    dynamicRegistries,
+                    biome.getRegistryName(),
+                    new Biome.Climate(
+                            biome.getPrecipitation(),
+                            biome.getBaseTemperature(),
+                            Biome.TemperatureModifier.NONE,
+                            biome.getDownfall()
+                    ),
+                    biome.getBiomeCategory(),
+                    biome.getDepth(),
+                    biome.getScale(),
+                    biome.getSpecialEffects(),
+                    new BiomeGenerationSettingsBuilder(biome.getGenerationSettings()),
+                    new MobSpawnInfoBuilder(biome.getMobSettings())
+            );
+
+            MinecraftForge.EVENT_BUS.post(event);
+
+            Biome.Builder builder = new Biome.Builder();
+            builder.downfall(event.getClimate().downfall);
+            builder.temperature(event.getClimate().temperature);
+            builder.precipitation(event.getClimate().precipitation);
+            builder.temperatureAdjustment(event.getClimate().temperatureModifier);
+            builder.depth(event.getDepth());
+            builder.scale(event.getScale());
+            builder.biomeCategory(event.getCategory());
+            builder.specialEffects(event.getEffects());
+            builder.mobSpawnSettings(event.getSpawns().build());
+            builder.generationSettings(event.getGeneration().build());
+
+            Biome result = builder.build().setRegistryName(entry.getKey().location());
+            registry.registerOrOverride(OptionalInt.empty(), entry.getKey(), result, Lifecycle.stable());
+        }
     }
 
     private static class LootTableContext

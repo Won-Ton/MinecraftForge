@@ -1,5 +1,14 @@
 --- a/net/minecraft/util/registry/WorldSettingsImport.java
 +++ b/net/minecraft/util/registry/WorldSettingsImport.java
+@@ -51,7 +_,7 @@
+    public static <T> WorldSettingsImport<T> func_244336_a(DynamicOps<T> p_244336_0_, WorldSettingsImport.IResourceAccess p_244336_1_, DynamicRegistries.Impl p_244336_2_) {
+       WorldSettingsImport<T> worldsettingsimport = new WorldSettingsImport<>(p_244336_0_, p_244336_1_, p_244336_2_, Maps.newIdentityHashMap());
+       DynamicRegistries.func_243608_a(p_244336_2_, worldsettingsimport);
+-      return worldsettingsimport;
++      return net.minecraftforge.common.ForgeHooks.onWorldGenLoad(worldsettingsimport, p_244336_2_);
+    }
+ 
+    private WorldSettingsImport(DynamicOps<T> p_i242092_1_, WorldSettingsImport.IResourceAccess p_i242092_2_, DynamicRegistries.Impl p_i242092_3_, IdentityHashMap<RegistryKey<? extends Registry<?>>, WorldSettingsImport.ResultMap<?>> p_i242092_4_) {
 @@ -190,6 +_,7 @@
                 ) {
                    JsonParser jsonparser = new JsonParser();

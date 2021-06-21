@@ -1,0 +1,6 @@
+{
+  "config": {
+    "state": {"Name":"minecraft:emerald_block"}
+  },
+  "type": "worldgen_load_test:cover_surface"
+}

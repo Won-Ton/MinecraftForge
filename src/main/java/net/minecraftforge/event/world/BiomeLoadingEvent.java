@@ -20,6 +20,7 @@
 package net.minecraftforge.event.world;
 
 import net.minecraft.util.ResourceLocation;
+import net.minecraft.util.registry.DynamicRegistries;
 import net.minecraft.world.biome.Biome;
 import net.minecraft.world.biome.BiomeAmbience;
 import net.minecraftforge.common.world.BiomeGenerationSettingsBuilder;
@@ -45,6 +46,7 @@ import javax.annotation.Nullable;
  */
 public class BiomeLoadingEvent extends Event
 {
+    private final DynamicRegistries.Impl dynamicRegistries;
     private final ResourceLocation name;
     private Biome.Climate climate;
     private Biome.Category category;
@@ -54,8 +56,9 @@ public class BiomeLoadingEvent extends Event
     private final BiomeGenerationSettingsBuilder gen;
     private final MobSpawnInfoBuilder spawns;
 
-    public BiomeLoadingEvent(@Nullable final ResourceLocation name, final Biome.Climate climate, final Biome.Category category, final float depth, final float scale, final BiomeAmbience effects, final BiomeGenerationSettingsBuilder gen, final MobSpawnInfoBuilder spawns)
+    public BiomeLoadingEvent(DynamicRegistries.Impl dynamicRegistries, @Nullable final ResourceLocation name, final Biome.Climate climate, final Biome.Category category, final float depth, final float scale, final BiomeAmbience effects, final BiomeGenerationSettingsBuilder gen, final MobSpawnInfoBuilder spawns)
     {
+        this.dynamicRegistries = dynamicRegistries;
         this.name = name;
         this.climate = climate;
         this.category = category;
@@ -64,6 +67,13 @@ public class BiomeLoadingEvent extends Event
         this.effects = effects;
         this.gen = gen;
         this.spawns = spawns;
+    }
+
+    // TODO: Limit to a restricted/read-only view on the DynamicRegistries? Currently mods could registry
+    //  replace components and even Biomes using this.
+    public DynamicRegistries.Impl getRegistryAccess()
+    {
+        return dynamicRegistries;
     }
 
     /**
