@@ -19,81 +19,87 @@
 
 package net.minecraftforge.registries;
 
-import com.mojang.serialization.Encoder;
-import com.mojang.serialization.JsonOps;
+import com.google.common.collect.ImmutableList;
 import com.mojang.serialization.Lifecycle;
 import net.minecraft.util.RegistryKey;
 import net.minecraft.util.registry.DynamicRegistries;
 import net.minecraft.util.registry.MutableRegistry;
 import net.minecraft.util.registry.Registry;
-import net.minecraft.util.registry.WorldSettingsImport;
-import net.minecraft.world.DimensionType;
-import net.minecraft.world.biome.Biome;
-import net.minecraft.world.gen.DimensionSettings;
+import net.minecraft.util.registry.SimpleRegistry;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.OptionalInt;
+import java.util.function.Function;
 
 public abstract class ForgeDynamicRegistries 
 {
     private static final Logger LOGGER = LogManager.getLogger();
 
-    private boolean event;
-    private boolean rollback;
-    private WorldSettingsImport.IResourceAccess.RegistryAccess snapshot;
+    private static final List<KeyHolder<?>> REGISTRIES = ImmutableList.of(
+            new KeyHolder<>(Registry.DIMENSION_TYPE_REGISTRY),
+            new KeyHolder<>(Registry.NOISE_GENERATOR_SETTINGS_REGISTRY),
+            new KeyHolder<>(Registry.BIOME_REGISTRY),
+            new KeyHolder<>(Registry.CONFIGURED_CARVER_REGISTRY),
+            new KeyHolder<>(Registry.CONFIGURED_FEATURE_REGISTRY),
+            new KeyHolder<>(Registry.CONFIGURED_SURFACE_BUILDER_REGISTRY),
+            new KeyHolder<>(Registry.CONFIGURED_STRUCTURE_FEATURE_REGISTRY),
+            new KeyHolder<>(Registry.TEMPLATE_POOL_REGISTRY),
+            new KeyHolder<>(Registry.PROCESSOR_LIST_REGISTRY)
+    );
 
-    public boolean postEvent()
+    private boolean event;
+    private List<RegistrySnapshot<?>> snapshots;
+
+    /**
+     * Get whether the DynamicRegistries have been marked ready for load events to be fired.
+     */
+    public boolean isMarkedForLoadEvent()
     {
         return event;
     }
 
     /**
-     * @param rollback Marks whether the registry needs to be rolled back before events are fired.
-     * @param event Marks whether events should be fired for this DynamicRegistries instance.
-     * @return The current DynamicRegistries.Impl instance.
+     * Mark the DynamicRegistries as ready for the load events to be fired.
      */
-    public DynamicRegistries.Impl prime(boolean rollback, boolean event)
+    public DynamicRegistries.Impl markForLoadEvent(boolean ready)
     {
-        this.event = event;
-        this.rollback = rollback;
-
-        // Note: the snapshot should be taken during same generation of ResourceManager that
-        // this DynamicRegistries instance was created on! This is so that the block tags used
-        // in features/carvers/structures serialize correctly.
-        createSnapshot();
-
+        this.event = ready;
         return self();
     }
 
-    public void rollback()
+    /**
+     * Create a snapshot of the current contents of the dynamic registries.
+     */
+    public void createSnapshot()
     {
-        if (!rollback || snapshot == null) return;
-        LOGGER.info("Restoring dynamic registries snapshot...");
-
-        boolean post = this.event;
-        // Prevent the dynamic registry load event from firing for this load.
-        this.event = false;
-
-        // Decode the snapshot data back into the dynamic registries.
-        WorldSettingsImport.create(JsonOps.INSTANCE, snapshot, self());
-
-        this.event = post;
-    }
-
-    private void createSnapshot()
-    {
-        // Note: We only need to snapshot once. Data is stored as json so we don't need
-        // to worry about instances de-syncing.
-        if (snapshot != null) return;
+        if (snapshots != null) return;
 
         LOGGER.info("Creating snapshot for dynamic registries...");
-        snapshot = new WorldSettingsImport.IResourceAccess.RegistryAccess();
+        DynamicRegistries.Impl dynamicRegistries = self();
+
+        snapshots = new ArrayList<>();
+        REGISTRIES.forEach(holder -> snapshots.add(createSnapshot(dynamicRegistries, holder)));
+    }
+
+    /**
+     * Rollback the dynamic registries contents to the current snapshot.
+     */
+    public DynamicRegistries.Impl rollback()
+    {
+        event = false;
 
         DynamicRegistries.Impl dynamicRegistries = self();
-        addToSnapshot(dynamicRegistries, snapshot, Registry.NOISE_GENERATOR_SETTINGS_REGISTRY, DimensionSettings.DIRECT_CODEC);
-        addToSnapshot(dynamicRegistries, snapshot, Registry.DIMENSION_TYPE_REGISTRY, DimensionType.DIRECT_CODEC);
-        addToSnapshot(dynamicRegistries, snapshot, Registry.BIOME_REGISTRY, Biome.DIRECT_CODEC);
+        if (snapshots == null) return dynamicRegistries;
+
+        LOGGER.info("Restoring dynamic registries from snapshot...");
+        snapshots.forEach(snapshot -> restoreSnapshot(dynamicRegistries, snapshot));
+        snapshots = null;
+
+        return dynamicRegistries;
     }
 
     private DynamicRegistries.Impl self()
@@ -101,15 +107,75 @@ public abstract class ForgeDynamicRegistries
         return (DynamicRegistries.Impl) this;
     }
 
-    private static <E> void addToSnapshot(DynamicRegistries.Impl registries,
-                                          WorldSettingsImport.IResourceAccess.RegistryAccess access,
-                                          RegistryKey<? extends Registry<E>> registryKey,
-                                          Encoder<E> encoder)
+    private static <E> RegistrySnapshot<E> createSnapshot(DynamicRegistries.Impl registries, KeyHolder<E> holder)
     {
-        MutableRegistry<E> registry = registries.registryOrThrow(registryKey);
-        for (Map.Entry<RegistryKey<E>, E> entry : registry.entrySet()) {
-            int id = registry.getId(entry.getValue());
-            access.add(registries, entry.getKey(), encoder, id, entry.getValue(), Lifecycle.stable());
+        Registry<E> registry = registries.registryOrThrow(holder.key);
+        Function<E, Lifecycle> lifecycleFunction = getLifecyleFunction(registry);
+
+        List<EntrySnapshot<E>> snapshots = new ArrayList<>();
+        for (Map.Entry<RegistryKey<E>, E> entry : registry.entrySet())
+        {
+            Lifecycle lifecycle = lifecycleFunction.apply(entry.getValue());
+            snapshots.add(new EntrySnapshot<>(entry.getKey(), entry.getValue(), lifecycle));
+        }
+
+        return new RegistrySnapshot<>(holder.key, snapshots);
+    }
+
+    private static <E> void restoreSnapshot(DynamicRegistries.Impl registries, RegistrySnapshot<E> snapshot)
+    {
+        MutableRegistry<E> registry = registries.registryOrThrow(snapshot.registryKey);
+        for (EntrySnapshot<E> entry : snapshot.snapshots)
+        {
+            E e = registry.get(entry.key);
+            if (e == null || e == entry.value) continue;
+            registry.registerOrOverride(OptionalInt.empty(), entry.key, entry.value, entry.lifecycle);
+        }
+    }
+
+    private static <E> Function<E, Lifecycle> getLifecyleFunction(Registry<E> registry)
+    {
+        if (registry instanceof SimpleRegistry)
+        {
+            SimpleRegistry<E> simpleRegistry = (SimpleRegistry<E>) registry;
+            return simpleRegistry::lifecycle;
+        }
+        return e -> Lifecycle.stable(); // Shouldn't happen
+    }
+
+    private static class KeyHolder<E>
+    {
+        private final RegistryKey<? extends Registry<E>> key;
+
+        private KeyHolder(RegistryKey<? extends Registry<E>> key)
+        {
+            this.key = key;
+        }
+    }
+
+    private static class RegistrySnapshot<E>
+    {
+        private final RegistryKey<? extends Registry<E>> registryKey;
+        private final List<EntrySnapshot<E>> snapshots;
+
+        private RegistrySnapshot(RegistryKey<? extends Registry<E>> registryKey, List<EntrySnapshot<E>> snapshots)
+        {
+            this.registryKey = registryKey;
+            this.snapshots = snapshots;
+        }
+    }
+
+    private static class EntrySnapshot<E>
+    {
+        private final RegistryKey<E> key;
+        private final E value;
+        private final Lifecycle lifecycle;
+
+        private EntrySnapshot(RegistryKey<E> key, E value, Lifecycle lifecycle)
+        {
+            this.key = key;
+            this.value = value;
+            this.lifecycle = lifecycle;
         }
     }
 }

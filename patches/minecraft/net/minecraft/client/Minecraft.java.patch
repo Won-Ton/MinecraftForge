@@ -311,16 +311,16 @@
 +      final DynamicRegistries.Impl dyn_f;
        try {
 -         minecraft$packmanager = this.func_238189_a_(p_238195_2_, p_238195_3_, p_238195_4_, p_238195_5_, saveformat$levelsave);
-+         Minecraft.PackManager mgr = this.func_238189_a_(p_238195_2_.prime(p_238195_6_ == WorldSelectionType.NONE, creating), p_238195_3_, p_238195_4_, p_238195_5_, saveformat$levelsave); // Note: WorldSelectionType.NONE is only used when loadWorld recurses on itself after encountering a loading error or experimental settings are detected. We use it to mark the dynamic-registry for a rollback before loading events are fired to prevent duplication in biome gen lists.
++         Minecraft.PackManager mgr = this.func_238189_a_(p_238195_2_.markForLoadEvent(creating), p_238195_3_, p_238195_4_, p_238195_5_, saveformat$levelsave);
 +         // We need to rebuild this if we're loading world, so that it gets all the information from AFTER we inject our mappings from the save.
 +         dyn_f = creating ? p_238195_2_ : DynamicRegistries.func_239770_b_();
-+         minecraft$packmanager = creating ? mgr : this.func_238189_a_(dyn_f.prime(false, true), p_238195_3_, p_238195_4_, p_238195_5_, saveformat$levelsave); //Note this runs the injection again... which isn't good.. but hey.. we need a better spot to hook in.
++         minecraft$packmanager = creating ? mgr : this.func_238189_a_(dyn_f.markForLoadEvent(true), p_238195_3_, p_238195_4_, p_238195_5_, saveformat$levelsave); //Note this runs the injection again... which isn't good.. but hey.. we need a better spot to hook in.
 +
        } catch (Exception exception) {
           field_147123_G.warn("Failed to load datapacks, can't proceed with server load", (Throwable)exception);
           this.func_147108_a(new DatapackFailureScreen(() -> {
 -            this.func_238195_a_(p_238195_1_, p_238195_2_, p_238195_3_, p_238195_4_, true, p_238195_6_);
-+            this.loadWorld(p_238195_1_, p_238195_2_, p_238195_3_, p_238195_4_, true, p_238195_6_, creating);
++            this.loadWorld(p_238195_1_, p_238195_2_.rollback(), p_238195_3_, p_238195_4_, true, p_238195_6_, creating);
           }));
  
           try {
@@ -357,7 +357,7 @@
        } else {
           this.func_241559_a_(p_238195_6_, p_238195_1_, flag, () -> {
 -            this.func_238195_a_(p_238195_1_, p_238195_2_, p_238195_3_, p_238195_4_, p_238195_5_, Minecraft.WorldSelectionType.NONE);
-+            this.loadWorld(p_238195_1_, dyn_f, p_238195_3_, p_238195_4_, p_238195_5_, Minecraft.WorldSelectionType.NONE, creating);
++            this.loadWorld(p_238195_1_, dyn_f.rollback(), p_238195_3_, p_238195_4_, p_238195_5_, Minecraft.WorldSelectionType.NONE, creating);
           });
           minecraft$packmanager.close();
  

@@ -932,10 +932,9 @@ public class ForgeHooks
 
     public static <T> T onWorldGenLoad(T context, DynamicRegistries.Impl registries)
     {
-        if (!registries.postEvent()) return context;
+        if (!registries.isMarkedForLoadEvent()) return context;
 
-        // Rollback to previous state if marked
-        registries.rollback();
+        registries.createSnapshot();
 
         postDynamicRegistryLoadEvent(registries);
         postBiomeLoadEvent(registries);

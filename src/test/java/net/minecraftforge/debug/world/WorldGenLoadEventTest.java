@@ -183,8 +183,6 @@ public class WorldGenLoadEventTest {
 
     private void printFeatures(Registry<Biome> registry, RegistryKey<Biome> key) {
         LOG.info("Biome: {}, Stage: {}, Features:", key.location(), TARGET_STAGE);
-
-        // This is kinda gross. Sorry.
         registry.getOrThrow(key).getGenerationSettings().features().get(TARGET_STAGE.ordinal()).stream()
                 .map(Supplier::get)
                 .forEach(feature -> ConfiguredFeature.DIRECT_CODEC.encodeStart(JsonOps.INSTANCE, feature)
