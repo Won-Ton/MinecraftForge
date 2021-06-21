@@ -136,9 +136,7 @@ import net.minecraftforge.common.loot.IGlobalLootModifier;
 import net.minecraftforge.common.loot.LootModifierManager;
 import net.minecraftforge.common.loot.LootTableIdCondition;
 import net.minecraftforge.common.util.BlockSnapshot;
-import net.minecraftforge.common.world.BiomeGenerationSettingsBuilder;
 import net.minecraftforge.common.world.ForgeWorldType;
-import net.minecraftforge.common.world.MobSpawnInfoBuilder;
 import net.minecraftforge.event.AnvilUpdateEvent;
 import net.minecraftforge.event.DifficultyChangeEvent;
 import net.minecraftforge.event.ForgeEventFactory;
@@ -176,6 +174,7 @@ import net.minecraftforge.fml.ModLoader;
 import net.minecraftforge.fml.common.ObfuscationReflectionHelper;
 import net.minecraftforge.fml.packs.ResourcePackLoader;
 import net.minecraftforge.registries.DataSerializerEntry;
+import net.minecraftforge.registries.DynamicRegistriesAccess;
 import net.minecraftforge.registries.ForgeDynamicRegistries;
 import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraftforge.registries.ForgeRegistry;
@@ -935,21 +934,24 @@ public class ForgeHooks
     {
         if (!registries.isMarkedForLoadEvent()) return context;
 
+        // Create a backup of the unmodified biomes so they can be rolled back if needed.
         registries.createSnapshot();
 
-        postDynamicRegistryLoadEvent(registries);
+        // Provide access to all registries except biomes since we have special handling for them.
+        DynamicRegistriesAccess access = registries.accessExcluding(key -> key == Registry.BIOME_REGISTRY);
 
-        postBiomeLoadEvents(registries);
+        postDynamicRegistryLoadEvent(access);
+        postBiomeLoadEvents(registries, access);
 
         return context;
     }
 
-    private static void postDynamicRegistryLoadEvent(DynamicRegistries.Impl dynamicRegistries)
+    private static void postDynamicRegistryLoadEvent(DynamicRegistriesAccess access)
     {
-        MinecraftForge.EVENT_BUS.post(new DynamicRegistryLoadEvent(dynamicRegistries));
+        MinecraftForge.EVENT_BUS.post(new DynamicRegistryLoadEvent(access));
     }
 
-    private static void postBiomeLoadEvents(DynamicRegistries.Impl dynamicRegistries)
+    private static void postBiomeLoadEvents(DynamicRegistries.Impl dynamicRegistries, DynamicRegistriesAccess access)
     {
         MutableRegistry<Biome> registry = dynamicRegistries.registryOrThrow(Registry.BIOME_REGISTRY);
         Function<Biome, Lifecycle> lifecycleFunction = ForgeDynamicRegistries.getLifecyleFunction(registry);
@@ -961,7 +963,7 @@ public class ForgeHooks
             RegistryKey<Biome> key = entry.getKey();
             Lifecycle lifecycle = lifecycleFunction.apply(biome);
 
-            BiomeLoadingEvent event = BiomeLoadingEvent.create(biome, key.location(), dynamicRegistries);
+            BiomeLoadingEvent event = BiomeLoadingEvent.create(biome, key.location(), access);
             MinecraftForge.EVENT_BUS.post(event);
             Biome result = BiomeLoadingEvent.build(event);
 

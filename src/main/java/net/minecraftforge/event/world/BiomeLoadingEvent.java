@@ -20,13 +20,13 @@
 package net.minecraftforge.event.world;
 
 import net.minecraft.util.ResourceLocation;
-import net.minecraft.util.registry.DynamicRegistries;
 import net.minecraft.world.biome.Biome;
 import net.minecraft.world.biome.BiomeAmbience;
 import net.minecraftforge.common.world.BiomeGenerationSettingsBuilder;
 import net.minecraftforge.common.world.MobSpawnInfoBuilder;
 import net.minecraftforge.eventbus.api.Event;
 import net.minecraftforge.eventbus.api.EventPriority;
+import net.minecraftforge.registries.DynamicRegistriesAccess;
 
 /**
  * This event fires when a Biome is created from json or when a registered biome is re-created for worldgen.
@@ -44,7 +44,7 @@ import net.minecraftforge.eventbus.api.EventPriority;
  */
 public class BiomeLoadingEvent extends Event
 {
-    private final DynamicRegistries.Impl dynamicRegistries;
+    private final DynamicRegistriesAccess registryAccess;
     private final ResourceLocation name;
     private Biome.Climate climate;
     private Biome.Category category;
@@ -54,9 +54,9 @@ public class BiomeLoadingEvent extends Event
     private final BiomeGenerationSettingsBuilder gen;
     private final MobSpawnInfoBuilder spawns;
 
-    public BiomeLoadingEvent(DynamicRegistries.Impl dynamicRegistries, final ResourceLocation name, final Biome.Climate climate, final Biome.Category category, final float depth, final float scale, final BiomeAmbience effects, final BiomeGenerationSettingsBuilder gen, final MobSpawnInfoBuilder spawns)
+    public BiomeLoadingEvent(DynamicRegistriesAccess registryAccess, final ResourceLocation name, final Biome.Climate climate, final Biome.Category category, final float depth, final float scale, final BiomeAmbience effects, final BiomeGenerationSettingsBuilder gen, final MobSpawnInfoBuilder spawns)
     {
-        this.dynamicRegistries = dynamicRegistries;
+        this.registryAccess = registryAccess;
         this.name = name;
         this.climate = climate;
         this.category = category;
@@ -67,11 +67,9 @@ public class BiomeLoadingEvent extends Event
         this.spawns = spawns;
     }
 
-    // TODO: Limit to a restricted/read-only view on the DynamicRegistries? Currently mods could registry
-    //  replace components and even Biomes using this.
-    public DynamicRegistries.Impl getRegistryAccess()
+    public DynamicRegistriesAccess getRegistryAccess()
     {
-        return dynamicRegistries;
+        return registryAccess;
     }
 
     /**
@@ -142,10 +140,10 @@ public class BiomeLoadingEvent extends Event
         return spawns;
     }
 
-    public static BiomeLoadingEvent create(Biome biome, ResourceLocation name, DynamicRegistries.Impl dynamicRegistries)
+    public static BiomeLoadingEvent create(Biome biome, ResourceLocation name, DynamicRegistriesAccess registryAccess)
     {
         return new BiomeLoadingEvent(
-                dynamicRegistries,
+                registryAccess,
                 name,
                 new Biome.Climate(
                         biome.getPrecipitation(),

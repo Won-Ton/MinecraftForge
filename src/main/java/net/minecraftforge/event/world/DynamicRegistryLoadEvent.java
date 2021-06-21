@@ -19,19 +19,26 @@
 
 package net.minecraftforge.event.world;
 
-import net.minecraft.util.registry.DynamicRegistries;
 import net.minecraftforge.eventbus.api.Event;
+import net.minecraftforge.registries.DynamicRegistriesAccess;
 
+/**
+ * This event is fired during world loading/creation just before world-gen is initialized,
+ * and includes all content loaded from world-gen datapacks. Modifications to the registry
+ * entries should be carried out by creating a copy and then registering that copy as an
+ * override via {@link DynamicRegistriesAccess.RegistryAccess#override}.
+ */
 public class DynamicRegistryLoadEvent extends Event
 {
-    private final DynamicRegistries.Impl dynamicRegistries;
+    private final DynamicRegistriesAccess registryAccess;
 
-    public DynamicRegistryLoadEvent(DynamicRegistries.Impl dynamicRegistries)
+    public DynamicRegistryLoadEvent(DynamicRegistriesAccess registryAccess)
     {
-        this.dynamicRegistries = dynamicRegistries;
+        this.registryAccess = registryAccess;
     }
 
-    public DynamicRegistries.Impl getDynamicRegistries() {
-        return dynamicRegistries;
+    public DynamicRegistriesAccess getRegistryAccess()
+    {
+        return registryAccess;
     }
 }

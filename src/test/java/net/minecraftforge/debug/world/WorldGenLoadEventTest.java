@@ -20,13 +20,11 @@
 package net.minecraftforge.debug.world;
 
 import com.mojang.serialization.JsonOps;
-import com.mojang.serialization.Lifecycle;
 import net.minecraft.block.Block;
 import net.minecraft.block.Blocks;
 import net.minecraft.util.RegistryKey;
 import net.minecraft.util.ResourceLocation;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.registry.MutableRegistry;
 import net.minecraft.util.registry.Registry;
 import net.minecraft.util.registry.WorldGenRegistries;
 import net.minecraft.world.ISeedReader;
@@ -60,7 +58,6 @@ import java.lang.reflect.InvocationTargetException;
 import java.util.HashMap;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.Random;
 import java.util.function.Supplier;
 
@@ -114,18 +111,16 @@ public class WorldGenLoadEventTest {
     /**
      * Demonstrates how StructureSeparationSettings can be modified after datapacks have loaded.
      */
-    private void modifyStructuresSettings(DynamicRegistryLoadEvent event)
-    {
-        MutableRegistry<DimensionSettings> registry = event.getDynamicRegistries().registryOrThrow(Registry.NOISE_GENERATOR_SETTINGS_REGISTRY);
-        DimensionSettings original = registry.getOrThrow(DimensionSettings.OVERWORLD);
-        DimensionSettings replacement = copyDimensionSettings(original);
-        if (original == replacement) return; // Failed to reflect the DimensionSettings constructor :(
-
-        StructureSeparationSettings settings = new StructureSeparationSettings(2, 1, 0);
-        replacement.structureSettings().structureConfig().put(Structure.RUINED_PORTAL, settings);
-
-        LOG.info("Modifying overworld structure settings");
-        registry.registerOrOverride(OptionalInt.empty(), DimensionSettings.OVERWORLD, replacement, Lifecycle.stable());
+    private void modifyStructuresSettings(DynamicRegistryLoadEvent event) {
+        event.getRegistryAccess().getRegistry(Registry.NOISE_GENERATOR_SETTINGS_REGISTRY)
+                .ifPresent(access -> access.get(DimensionSettings.OVERWORLD)
+                        .flatMap(WorldGenLoadEventTest::copyDimensionSettings)
+                        .ifPresent(settings -> {
+                            StructureSeparationSettings portal = new StructureSeparationSettings(2, 1, 0);
+                            settings.structureSettings().structureConfig().put(Structure.RUINED_PORTAL, portal);
+                            LOG.info("Modifying overworld structure settings");
+                            access.override(DimensionSettings.OVERWORLD, settings);
+                        }));
     }
 
     /**
@@ -135,8 +130,8 @@ public class WorldGenLoadEventTest {
         if (!Objects.equals(event.getName(), Biomes.PLAINS.location())) return;
 
         LOG.info("Modifying plains with json configured feature");
-        event.getRegistryAccess().registry(Registry.CONFIGURED_FEATURE_REGISTRY)
-                .flatMap(r -> r.getOptional(DATA_FEATURE))
+        event.getRegistryAccess().getRegistry(Registry.CONFIGURED_FEATURE_REGISTRY)
+                .flatMap(r -> r.get(DATA_FEATURE))
                 .ifPresent(f -> event.getGeneration().addFeature(TARGET_STAGE, f));
     }
 
@@ -148,8 +143,8 @@ public class WorldGenLoadEventTest {
         if (!Objects.equals(event.getName(), Biomes.DESERT.location())) return;
 
         LOG.info("Modifying desert with registered configured feature");
-        event.getRegistryAccess().registry(Registry.CONFIGURED_FEATURE_REGISTRY)
-                .flatMap(r -> r.getOptional(REGISTERED_FEATURE))
+        event.getRegistryAccess().getRegistry(Registry.CONFIGURED_FEATURE_REGISTRY)
+                .flatMap(r -> r.get(REGISTERED_FEATURE))
                 .ifPresent(f -> event.getGeneration().addFeature(TARGET_STAGE, f));
     }
 
@@ -168,7 +163,7 @@ public class WorldGenLoadEventTest {
      * Prints the TOP_LAYER_MODIFICATION ConfiguredFeature json for each biome that we modified
      * to demonstrate that the feature has successfully been added to each biome, and that it
      * exists only once.
-     *
+     * <p>
      * Plains: minecraft:emerald_block
      * Desert: minecraft:gold_block
      * Forest: minecraft:diamond_block
@@ -186,8 +181,8 @@ public class WorldGenLoadEventTest {
         registry.getOrThrow(key).getGenerationSettings().features().get(TARGET_STAGE.ordinal()).stream()
                 .map(Supplier::get)
                 .forEach(feature -> ConfiguredFeature.DIRECT_CODEC.encodeStart(JsonOps.INSTANCE, feature)
-                .resultOrPartial(LOG::error)
-                .ifPresent(json -> LOG.info(" - {}", json)));
+                        .resultOrPartial(LOG::error)
+                        .ifPresent(json -> LOG.info(" - {}", json)));
     }
 
     private static class SurfaceFeature extends Feature<BlockStateFeatureConfig> {
@@ -216,13 +211,12 @@ public class WorldGenLoadEventTest {
         }
     }
 
-    private static DimensionSettings copyDimensionSettings(DimensionSettings settings)
-    {
+    private static Optional<DimensionSettings> copyDimensionSettings(DimensionSettings settings) {
         Constructor<?> constructor = DimensionSettings.class.getDeclaredConstructors()[0];
         constructor.setAccessible(true);
 
         try {
-            return (DimensionSettings) constructor.newInstance(
+            return Optional.of((DimensionSettings) constructor.newInstance(
                     new DimensionStructuresSettings(
                             Optional.ofNullable(settings.structureSettings().stronghold()),
                             new HashMap<>(settings.structureSettings().structureConfig())
@@ -234,10 +228,10 @@ public class WorldGenLoadEventTest {
                     settings.getBedrockFloorPosition(),
                     settings.seaLevel(),
                     false
-            );
+            ));
         } catch (InvocationTargetException | InstantiationException | IllegalAccessException e) {
             e.printStackTrace();
-            return settings;
+            return Optional.empty();
         } finally {
             constructor.setAccessible(false);
         }

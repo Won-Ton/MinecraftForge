@@ -34,6 +34,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.OptionalInt;
 import java.util.function.Function;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 public abstract class ForgeDynamicRegistries 
 {
@@ -60,6 +62,16 @@ public abstract class ForgeDynamicRegistries
     public boolean isMarkedForLoadEvent()
     {
         return event;
+    }
+
+    /**
+     * Clears all registry snapshots currently held by the DynamicRegistries.
+     */
+    public DynamicRegistries.Impl disposeSnapshots()
+    {
+        this.snapshots.clear();
+        this.snapshots = null;
+        return self();
     }
 
     /**
@@ -97,7 +109,7 @@ public abstract class ForgeDynamicRegistries
 
         LOGGER.info("Restoring dynamic registries from snapshot...");
         snapshots.forEach(snapshot -> restoreSnapshot(dynamicRegistries, snapshot));
-        snapshots = null;
+        disposeSnapshots();
 
         return dynamicRegistries;
     }
@@ -143,9 +155,17 @@ public abstract class ForgeDynamicRegistries
         return e -> Lifecycle.stable(); // Shouldn't happen
     }
 
-    private static class KeyHolder<E>
+    public DynamicRegistriesAccess accessExcluding(Predicate<RegistryKey<?>> predicate)
     {
-        private final RegistryKey<? extends Registry<E>> key;
+        List<KeyHolder<?>> keys = REGISTRIES.stream()
+                .filter(holder -> !predicate.test(holder.key))
+                .collect(Collectors.toList());
+        return DynamicRegistriesAccess.create(self(), keys);
+    }
+
+    public static class KeyHolder<E>
+    {
+        public final RegistryKey<? extends Registry<E>> key;
 
         private KeyHolder(RegistryKey<? extends Registry<E>> key)
         {

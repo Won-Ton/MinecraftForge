@@ -87,6 +87,8 @@ public class ServerLifecycleHooks
 
     public static boolean handleServerAboutToStart(final MinecraftServer server)
     {
+        // clear references to old registry snapshots now that dynamic-registry loading is complete
+        server.registryAccess().disposeSnapshots();
         currentServer = server;
         currentServer.getStatus().setForgeData(new FMLStatusPing()); //gathers NetworkRegistry data
         // on the dedi server we need to force the stuff to setup properly
