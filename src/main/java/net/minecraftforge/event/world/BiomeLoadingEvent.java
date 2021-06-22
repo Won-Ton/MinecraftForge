@@ -19,14 +19,18 @@
 
 package net.minecraftforge.event.world;
 
+import net.minecraft.util.RegistryKey;
 import net.minecraft.util.ResourceLocation;
 import net.minecraft.world.biome.Biome;
 import net.minecraft.world.biome.BiomeAmbience;
+import net.minecraftforge.common.BiomeDictionary;
 import net.minecraftforge.common.world.BiomeGenerationSettingsBuilder;
 import net.minecraftforge.common.world.MobSpawnInfoBuilder;
 import net.minecraftforge.eventbus.api.Event;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.registries.DynamicRegistriesAccess;
+
+import java.util.function.Predicate;
 
 /**
  * This event fires when a Biome is created from json or when a registered biome is re-created for worldgen.
@@ -45,7 +49,7 @@ import net.minecraftforge.registries.DynamicRegistriesAccess;
 public class BiomeLoadingEvent extends Event
 {
     private final DynamicRegistriesAccess registryAccess;
-    private final ResourceLocation name;
+    private final RegistryKey<Biome> registryKey;
     private Biome.Climate climate;
     private Biome.Category category;
     private float depth;
@@ -54,10 +58,13 @@ public class BiomeLoadingEvent extends Event
     private final BiomeGenerationSettingsBuilder gen;
     private final MobSpawnInfoBuilder spawns;
 
-    public BiomeLoadingEvent(DynamicRegistriesAccess registryAccess, final ResourceLocation name, final Biome.Climate climate, final Biome.Category category, final float depth, final float scale, final BiomeAmbience effects, final BiomeGenerationSettingsBuilder gen, final MobSpawnInfoBuilder spawns)
+    private final Biome.Category originalCategory;
+    private final Predicate<BiomeDictionary.Type> dictionaryTypes;
+
+    public BiomeLoadingEvent(DynamicRegistriesAccess registryAccess, final RegistryKey<Biome> registryKey, final Biome.Climate climate, final Biome.Category category, final float depth, final float scale, final BiomeAmbience effects, final BiomeGenerationSettingsBuilder gen, final MobSpawnInfoBuilder spawns)
     {
         this.registryAccess = registryAccess;
-        this.name = name;
+        this.registryKey = registryKey;
         this.climate = climate;
         this.category = category;
         this.depth = depth;
@@ -65,6 +72,8 @@ public class BiomeLoadingEvent extends Event
         this.effects = effects;
         this.gen = gen;
         this.spawns = spawns;
+        this.originalCategory = category;
+        this.dictionaryTypes = BiomeDictionary.getTypes(registryKey)::contains;
     }
 
     public DynamicRegistriesAccess getRegistryAccess()
@@ -72,12 +81,27 @@ public class BiomeLoadingEvent extends Event
         return registryAccess;
     }
 
+    public RegistryKey<Biome> getRegistryKey()
+    {
+        return registryKey;
+    }
+
     /**
      * This will get the registry name of the biome.
      */
     public ResourceLocation getName()
     {
-        return name;
+        return registryKey.location();
+    }
+
+    public Biome.Category getOriginalCategory()
+    {
+        return originalCategory;
+    }
+
+    public Predicate<BiomeDictionary.Type> getDictionaryTypes()
+    {
+        return dictionaryTypes;
     }
 
     public Biome.Climate getClimate()
@@ -140,11 +164,27 @@ public class BiomeLoadingEvent extends Event
         return spawns;
     }
 
-    public static BiomeLoadingEvent create(Biome biome, ResourceLocation name, DynamicRegistriesAccess registryAccess)
+    public Biome buildBiome()
+    {
+        return new Biome.Builder()
+                .downfall(getClimate().downfall)
+                .temperature(getClimate().temperature)
+                .precipitation(getClimate().precipitation)
+                .temperatureAdjustment(getClimate().temperatureModifier)
+                .depth(getDepth()).scale(getScale())
+                .biomeCategory(getCategory())
+                .specialEffects(getEffects())
+                .mobSpawnSettings(getSpawns().build())
+                .generationSettings(getGeneration().build())
+                .build()
+                .setRegistryName(getName());
+    }
+
+    public static BiomeLoadingEvent create(RegistryKey<Biome> registryKey, Biome biome, DynamicRegistriesAccess registryAccess)
     {
         return new BiomeLoadingEvent(
                 registryAccess,
-                name,
+                registryKey,
                 new Biome.Climate(
                         biome.getPrecipitation(),
                         biome.getBaseTemperature(),
@@ -158,21 +198,5 @@ public class BiomeLoadingEvent extends Event
                 new BiomeGenerationSettingsBuilder(biome.getGenerationSettings()),
                 new MobSpawnInfoBuilder(biome.getMobSettings())
         );
-    }
-
-    public static Biome build(BiomeLoadingEvent event)
-    {
-        return new Biome.Builder()
-                .downfall(event.getClimate().downfall)
-                .temperature(event.getClimate().temperature)
-                .precipitation(event.getClimate().precipitation)
-                .temperatureAdjustment(event.getClimate().temperatureModifier)
-                .depth(event.getDepth()).scale(event.getScale())
-                .biomeCategory(event.getCategory())
-                .specialEffects(event.getEffects())
-                .mobSpawnSettings(event.getSpawns().build())
-                .generationSettings(event.getGeneration().build())
-                .build()
-                .setRegistryName(event.getName());
     }
 }

@@ -19,6 +19,8 @@
 
 package net.minecraftforge.debug.world;
 
+import com.google.common.collect.Sets;
+import com.mojang.datafixers.util.Pair;
 import com.mojang.serialization.JsonOps;
 import net.minecraft.block.Block;
 import net.minecraft.block.Blocks;
@@ -27,6 +29,7 @@ import net.minecraft.util.ResourceLocation;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.registry.Registry;
 import net.minecraft.util.registry.WorldGenRegistries;
+import net.minecraft.world.DimensionType;
 import net.minecraft.world.ISeedReader;
 import net.minecraft.world.biome.Biome;
 import net.minecraft.world.biome.Biomes;
@@ -40,6 +43,7 @@ import net.minecraft.world.gen.feature.Feature;
 import net.minecraft.world.gen.feature.structure.Structure;
 import net.minecraft.world.gen.settings.DimensionStructuresSettings;
 import net.minecraft.world.gen.settings.StructureSeparationSettings;
+import net.minecraftforge.common.BiomeDictionary;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.world.BiomeLoadingEvent;
 import net.minecraftforge.event.world.DynamicRegistryLoadEvent;
@@ -59,6 +63,7 @@ import java.util.HashMap;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Random;
+import java.util.Set;
 import java.util.function.Supplier;
 
 @Mod(WorldGenLoadEventTest.MODID)
@@ -88,12 +93,17 @@ public class WorldGenLoadEventTest {
     private static final DeferredRegister<Feature<?>> FEATURE_REGISTRAR = DeferredRegister.create(ForgeRegistries.FEATURES, MODID);
     private static final Supplier<SurfaceFeature> COVER_SURFACE = FEATURE_REGISTRAR.register("cover_surface", SurfaceFeature::new);
 
+    // Tracks the biomes that we're modifying
+    private final Set<RegistryKey<Biome>> modifiedBiomes = Sets.newIdentityHashSet();
+
     public WorldGenLoadEventTest() {
         IEventBus modBus = FMLJavaModLoadingContext.get().getModEventBus();
         modBus.addListener(this::setup);
         FEATURE_REGISTRAR.register(modBus);
 
         MinecraftForge.EVENT_BUS.addListener(this::modifyStructuresSettings);
+        MinecraftForge.EVENT_BUS.addListener(this::modifyDimensionTypes);
+
         MinecraftForge.EVENT_BUS.addListener(this::modifyPlains);
         MinecraftForge.EVENT_BUS.addListener(this::modifyDesert);
         MinecraftForge.EVENT_BUS.addListener(this::modifyForest);
@@ -112,24 +122,36 @@ public class WorldGenLoadEventTest {
      * Demonstrates how StructureSeparationSettings can be modified after datapacks have loaded.
      */
     private void modifyStructuresSettings(DynamicRegistryLoadEvent event) {
-        event.getRegistryAccess().getRegistry(Registry.NOISE_GENERATOR_SETTINGS_REGISTRY)
-                .ifPresent(access -> access.get(DimensionSettings.OVERWORLD)
-                        .flatMap(WorldGenLoadEventTest::copyDimensionSettings)
-                        .ifPresent(settings -> {
-                            StructureSeparationSettings portal = new StructureSeparationSettings(2, 1, 0);
-                            settings.structureSettings().structureConfig().put(Structure.RUINED_PORTAL, portal);
-                            LOG.info("Modifying overworld structure settings");
-                            access.override(DimensionSettings.OVERWORLD, settings);
-                        }));
+        event.getRegistryAccess().getRegistry(Registry.NOISE_GENERATOR_SETTINGS_REGISTRY).ifPresent(registry -> {
+            registry.get(DimensionSettings.OVERWORLD).flatMap(WorldGenLoadEventTest::copy).ifPresent(settings -> {
+                StructureSeparationSettings portal = new StructureSeparationSettings(2, 1, 0);
+                settings.structureSettings().structureConfig().put(Structure.RUINED_PORTAL, portal);
+                LOG.info("Modifying overworld structure settings");
+                registry.override(DimensionSettings.OVERWORLD, settings);
+            });
+        });
+    }
+
+    /**
+     * Demonstrates how a DimensionType can be modified after datapacks have loaded.
+     */
+    private void modifyDimensionTypes(DynamicRegistryLoadEvent event) {
+        event.getRegistryAccess().getRegistry(Registry.DIMENSION_TYPE_REGISTRY).ifPresent(registry -> {
+            registry.get(DimensionType.END_LOCATION).flatMap(WorldGenLoadEventTest::copy).ifPresent(type -> {
+                LOG.info("Modifying overworld dimension type");
+                registry.override(DimensionType.OVERWORLD_LOCATION, type);
+            });
+        });
     }
 
     /**
      * Demonstrates how a ConfiguredFeature defined only in json can be added to a biome.
      */
     private void modifyPlains(BiomeLoadingEvent event) {
-        if (!Objects.equals(event.getName(), Biomes.PLAINS.location())) return;
+        if (event.getRegistryKey() != Biomes.PLAINS) return;
+        modifiedBiomes.add(event.getRegistryKey());
 
-        LOG.info("Modifying plains with json configured feature");
+        LOG.info("Modifying biome {} with json configured feature", event.getName());
         event.getRegistryAccess().getRegistry(Registry.CONFIGURED_FEATURE_REGISTRY)
                 .flatMap(r -> r.get(DATA_FEATURE))
                 .ifPresent(f -> event.getGeneration().addFeature(TARGET_STAGE, f));
@@ -140,9 +162,10 @@ public class WorldGenLoadEventTest {
      * be added to biomes.
      */
     private void modifyDesert(BiomeLoadingEvent event) {
-        if (!Objects.equals(event.getName(), Biomes.DESERT.location())) return;
+        if (event.getOriginalCategory() != Biome.Category.DESERT) return;
+        modifiedBiomes.add(event.getRegistryKey());
 
-        LOG.info("Modifying desert with registered configured feature");
+        LOG.info("Modifying biome {} with registered configured feature", event.getName());
         event.getRegistryAccess().getRegistry(Registry.CONFIGURED_FEATURE_REGISTRY)
                 .flatMap(r -> r.get(REGISTERED_FEATURE))
                 .ifPresent(f -> event.getGeneration().addFeature(TARGET_STAGE, f));
@@ -152,9 +175,10 @@ public class WorldGenLoadEventTest {
      * Demonstrates that ConfiguredFeatures can be dynamically constructed and added to biomes.
      */
     private void modifyForest(BiomeLoadingEvent event) {
-        if (!Objects.equals(event.getName(), Biomes.FOREST.location())) return;
+        if (!event.getDictionaryTypes().test(BiomeDictionary.Type.FOREST)) return;
+        modifiedBiomes.add(event.getRegistryKey());
 
-        LOG.info("Modifying forest with dynamic configured feature");
+        LOG.info("Modifying biome {} with dynamic configured feature", event.getName());
         ConfiguredFeature<?, ?> feature = COVER_SURFACE.get().with(Blocks.DIAMOND_BLOCK);
         event.getGeneration().addFeature(TARGET_STAGE, feature);
     }
@@ -171,18 +195,53 @@ public class WorldGenLoadEventTest {
     private void inspectBiome(FMLServerAboutToStartEvent event) {
         LOG.info("Inspecting biome features...");
         Registry<Biome> registry = event.getServer().registryAccess().registryOrThrow(Registry.BIOME_REGISTRY);
-        printFeatures(registry, Biomes.PLAINS);
-        printFeatures(registry, Biomes.DESERT);
-        printFeatures(registry, Biomes.FOREST);
+        modifiedBiomes.stream().sorted().map(registry::get).filter(Objects::nonNull).forEach(WorldGenLoadEventTest::printFeatures);
+        modifiedBiomes.clear();
     }
 
-    private void printFeatures(Registry<Biome> registry, RegistryKey<Biome> key) {
-        LOG.info("Biome: {}, Stage: {}, Features:", key.location(), TARGET_STAGE);
-        registry.getOrThrow(key).getGenerationSettings().features().get(TARGET_STAGE.ordinal()).stream()
+    private static void printFeatures(Biome biome) {
+        LOG.info("Biome: {}, Stage: {}, Features:", biome.getRegistryName(), TARGET_STAGE);
+        biome.getGenerationSettings().features().get(TARGET_STAGE.ordinal()).stream()
                 .map(Supplier::get)
                 .forEach(feature -> ConfiguredFeature.DIRECT_CODEC.encodeStart(JsonOps.INSTANCE, feature)
                         .resultOrPartial(LOG::error)
                         .ifPresent(json -> LOG.info(" - {}", json)));
+    }
+
+    private static Optional<DimensionSettings> copy(DimensionSettings settings) {
+        // Need to reflect the constructor so we can provide a DimensionStructuresSettings with a mutable map
+        Constructor<?> constructor = DimensionSettings.class.getDeclaredConstructors()[0];
+        constructor.setAccessible(true);
+
+        try {
+            return Optional.of((DimensionSettings) constructor.newInstance(
+                    new DimensionStructuresSettings(
+                            Optional.ofNullable(settings.structureSettings().stronghold()),
+                            new HashMap<>(settings.structureSettings().structureConfig())
+                    ),
+                    settings.noiseSettings(),
+                    settings.getDefaultBlock(),
+                    settings.getDefaultFluid(),
+                    settings.getBedrockRoofPosition(),
+                    settings.getBedrockFloorPosition(),
+                    settings.seaLevel(),
+                    false
+            ));
+        } catch (InvocationTargetException | InstantiationException | IllegalAccessException e) {
+            e.printStackTrace();
+            return Optional.empty();
+        } finally {
+            constructor.setAccessible(false);
+        }
+    }
+
+    private static Optional<DimensionType> copy(DimensionType dimensionType) {
+        // Serialize and deserialize using the direct codec to get a new instance.
+        return DimensionType.DIRECT_CODEC.encodeStart(JsonOps.INSTANCE, dimensionType)
+                .resultOrPartial(LOG::error)
+                .flatMap(json -> DimensionType.DIRECT_CODEC.decode(JsonOps.INSTANCE, json)
+                        .resultOrPartial(LOG::error)
+                        .map(Pair::getFirst));
     }
 
     private static class SurfaceFeature extends Feature<BlockStateFeatureConfig> {
@@ -208,32 +267,6 @@ public class WorldGenLoadEventTest {
                 }
             }
             return true;
-        }
-    }
-
-    private static Optional<DimensionSettings> copyDimensionSettings(DimensionSettings settings) {
-        Constructor<?> constructor = DimensionSettings.class.getDeclaredConstructors()[0];
-        constructor.setAccessible(true);
-
-        try {
-            return Optional.of((DimensionSettings) constructor.newInstance(
-                    new DimensionStructuresSettings(
-                            Optional.ofNullable(settings.structureSettings().stronghold()),
-                            new HashMap<>(settings.structureSettings().structureConfig())
-                    ),
-                    settings.noiseSettings(),
-                    settings.getDefaultBlock(),
-                    settings.getDefaultFluid(),
-                    settings.getBedrockRoofPosition(),
-                    settings.getBedrockFloorPosition(),
-                    settings.seaLevel(),
-                    false
-            ));
-        } catch (InvocationTargetException | InstantiationException | IllegalAccessException e) {
-            e.printStackTrace();
-            return Optional.empty();
-        } finally {
-            constructor.setAccessible(false);
         }
     }
 }

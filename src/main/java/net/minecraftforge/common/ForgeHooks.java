@@ -937,37 +937,37 @@ public class ForgeHooks
         // Create a backup of the unmodified biomes so they can be rolled back if needed.
         registries.createSnapshot();
 
-        // Provide access to all registries except biomes since we have special handling for them.
-        DynamicRegistriesAccess access = registries.accessExcluding(key -> key == Registry.BIOME_REGISTRY);
+        postDynamicRegistryLoadEvent(registries);
 
-        postDynamicRegistryLoadEvent(access);
-        postBiomeLoadEvents(registries, access);
+        postBiomeLoadEvents(registries);
 
         return context;
     }
 
-    private static void postDynamicRegistryLoadEvent(DynamicRegistriesAccess access)
+    private static void postDynamicRegistryLoadEvent(DynamicRegistries.Impl dynamicRegistries)
     {
+        DynamicRegistriesAccess access = dynamicRegistries.accessAll();
         MinecraftForge.EVENT_BUS.post(new DynamicRegistryLoadEvent(access));
     }
 
-    private static void postBiomeLoadEvents(DynamicRegistries.Impl dynamicRegistries, DynamicRegistriesAccess access)
+    private static void postBiomeLoadEvents(DynamicRegistries.Impl dynamicRegistries)
     {
+        // Provide access to all the world-gen registries except biomes (since we're iterating over it)
+        DynamicRegistriesAccess registriesAccess = dynamicRegistries.accessExcluding(k -> k == Registry.BIOME_REGISTRY);
+
         MutableRegistry<Biome> registry = dynamicRegistries.registryOrThrow(Registry.BIOME_REGISTRY);
         Function<Biome, Lifecycle> lifecycleFunction = ForgeDynamicRegistries.getLifecyleFunction(registry);
 
         // Note: Wrap entrySet since we're modifying the underlying map
         for (Map.Entry<RegistryKey<Biome>, Biome> entry : new ArrayList<>(registry.entrySet()))
         {
-            Biome biome = entry.getValue();
-            RegistryKey<Biome> key = entry.getKey();
-            Lifecycle lifecycle = lifecycleFunction.apply(biome);
-
-            BiomeLoadingEvent event = BiomeLoadingEvent.create(biome, key.location(), access);
+            BiomeLoadingEvent event = BiomeLoadingEvent.create(entry.getKey(), entry.getValue(), registriesAccess);
             MinecraftForge.EVENT_BUS.post(event);
-            Biome result = BiomeLoadingEvent.build(event);
 
-            registry.registerOrOverride(OptionalInt.empty(), key, result, lifecycle);
+            Biome biome = event.buildBiome();
+            Lifecycle lifecycle = lifecycleFunction.apply(entry.getValue());
+
+            registry.registerOrOverride(OptionalInt.empty(), entry.getKey(), biome, lifecycle);
         }
     }
 

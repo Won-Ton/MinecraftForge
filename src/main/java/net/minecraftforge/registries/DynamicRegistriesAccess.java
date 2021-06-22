@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 public final class DynamicRegistriesAccess
 {
@@ -81,6 +82,22 @@ public final class DynamicRegistriesAccess
         public Optional<E> get(ResourceLocation registryName)
         {
             return registry.getOptional(registryName);
+        }
+
+        /**
+         * Get a Supplier for the entry currently registered to the given RegistryKey
+         */
+        public Optional<Supplier<E>> getSupplier(RegistryKey<E> key)
+        {
+            return getSupplier(key.location());
+        }
+
+        /**
+         * Get a Supplier for the entry currently registered to the given registry name.
+         */
+        public Optional<Supplier<E>> getSupplier(ResourceLocation registryName)
+        {
+            return Optional.of(() -> registry.get(registryName));
         }
 
         /**

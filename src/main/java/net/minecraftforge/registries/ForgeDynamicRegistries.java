@@ -155,6 +155,11 @@ public abstract class ForgeDynamicRegistries
         return e -> Lifecycle.stable(); // Shouldn't happen
     }
 
+    public DynamicRegistriesAccess accessAll()
+    {
+        return DynamicRegistriesAccess.create(self(), REGISTRIES);
+    }
+
     public DynamicRegistriesAccess accessExcluding(Predicate<RegistryKey<?>> predicate)
     {
         List<KeyHolder<?>> keys = REGISTRIES.stream()
